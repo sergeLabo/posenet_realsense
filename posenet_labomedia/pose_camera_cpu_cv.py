@@ -18,28 +18,28 @@ import time
 
 import cv2
 
-from pose_engine import PoseEngine, KeypointType
+from pose_engine_cpu_cv import PoseEngine
 
 EDGES = (
-    (KeypointType.NOSE, KeypointType.LEFT_EYE),
-    (KeypointType.NOSE, KeypointType.RIGHT_EYE),
-    (KeypointType.NOSE, KeypointType.LEFT_EAR),
-    (KeypointType.NOSE, KeypointType.RIGHT_EAR),
-    (KeypointType.LEFT_EAR, KeypointType.LEFT_EYE),
-    (KeypointType.RIGHT_EAR, KeypointType.RIGHT_EYE),
-    (KeypointType.LEFT_EYE, KeypointType.RIGHT_EYE),
-    (KeypointType.LEFT_SHOULDER, KeypointType.RIGHT_SHOULDER),
-    (KeypointType.LEFT_SHOULDER, KeypointType.LEFT_ELBOW),
-    (KeypointType.LEFT_SHOULDER, KeypointType.LEFT_HIP),
-    (KeypointType.RIGHT_SHOULDER, KeypointType.RIGHT_ELBOW),
-    (KeypointType.RIGHT_SHOULDER, KeypointType.RIGHT_HIP),
-    (KeypointType.LEFT_ELBOW, KeypointType.LEFT_WRIST),
-    (KeypointType.RIGHT_ELBOW, KeypointType.RIGHT_WRIST),
-    (KeypointType.LEFT_HIP, KeypointType.RIGHT_HIP),
-    (KeypointType.LEFT_HIP, KeypointType.LEFT_KNEE),
-    (KeypointType.RIGHT_HIP, KeypointType.RIGHT_KNEE),
-    (KeypointType.LEFT_KNEE, KeypointType.LEFT_ANKLE),
-    (KeypointType.RIGHT_KNEE, KeypointType.RIGHT_ANKLE),
+    ('nose', 'left eye'),
+    ('nose', 'right eye'),
+    ('nose', 'left ear'),
+    ('nose', 'right ear'),
+    ('left ear', 'left eye'),
+    ('right ear', 'right eye'),
+    ('left eye', 'right eye'),
+    ('left shoulder', 'right shoulder'),
+    ('left shoulder', 'left elbow'),
+    ('left shoulder', 'left hip'),
+    ('right shoulder', 'right elbow'),
+    ('right shoulder', 'right hip'),
+    ('left elbow', 'left wrist'),
+    ('right elbow', 'right wrist'),
+    ('left hip', 'right hip'),
+    ('left hip', 'left knee'),
+    ('right hip', 'right knee'),
+    ('left knee', 'left ankle'),
+    ('right knee', 'right ankle'),
 )
 
 
@@ -49,39 +49,24 @@ def shadow_text(img, x, y, text, font_size=16):
     cv2.putText(img, text,(x, y),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
-
-def draw_pose(img, pose, src_size, appsink_size, color=(0, 255, 255), threshold=0.2):
-    """
-    pose = Pose(keypoints={
-    <KeypointType.NOSE: 0>: Keypoint(point=Point(x=357.3, y=218.4), score=0.99),
-    src_size = (640, 480)
-    appsink_size = (640, 480)
-
-    """
-    box_x, box_y = 641, 480
-    # appsink_size = 640, 480
-    # src_size = 640, 480
-    scale_x = 1  # src_size[0] / appsink_size[0]
-    scale_y = 1  # src_size[1] / appsink_size[1]
+def draw_pose(img, pose, src_size, appsink_size, color=(0, 255, 255), minPartConfidence=0.1):
+    scale_x = src_size[0] / appsink_size[0]
+    scale_y = src_size[1] / appsink_size[1]
     xys = {}
+    kscore = {}
     for label, keypoint in pose.keypoints.items():
-        # keypoint = Keypoint(point=Point(x=445.2, y=403.1), score=0.309)
-        if keypoint.score < threshold:
-            continue
+        if keypoint.score < minPartConfidence: continue
         # Offset and scale to source coordinate space.
-        # #kp_y = int(scale_y*keypoint.yx[0])
-        # #kp_x = int(scale_x*keypoint.yx[1])
-        # #kp_x = -int((keypoint.point[0] - box_x) * scale_x)
-        # #kp_y = -int((keypoint.point[1] - box_y) * scale_y)
-        kp_x = int(keypoint.point[0])
-        kp_y = int(keypoint.point[1])
-
+        kp_y = int(scale_y*keypoint.yx[0])
+        kp_x = int(scale_x*keypoint.yx[1])
         xys[label] = (kp_x, kp_y)
+        kscore[label] = keypoint.score
         cv2.circle(img, (kp_x, kp_y), 5, color=(209, 156, 0), thickness=-1) #cyan
         cv2.circle(img, (kp_x, kp_y), 6, color=color, thickness=1)
 
     for a, b in EDGES:
         if a not in xys or b not in xys: continue
+        if kscore[a] < minPartConfidence or kscore[b] < minPartConfidence: continue
         ax, ay = xys[a]
         bx, by = xys[b]
         cv2.line(img, (ax, ay), (bx, by), color, 2)
@@ -103,14 +88,11 @@ def main():
     parser.add_argument('--model', help='.tflite model path.', required=False)
     parser.add_argument('--res', help='Resolution', default='640x480',
                         choices=['480x360', '640x480', '1280x720'])
-    parser.add_argument('--videosrc', help='Which video source to use', default='/dev/video0')
     parser.add_argument('--h264', help='Use video/x-h264 input', action='store_true')
     parser.add_argument('--jpeg', help='Use image/jpeg input', action='store_true')
     args = parser.parse_args()
 
-    args.res = '640x480'  # '1280x720'  #
-    default_model = 'models/mobilenet/posenet_mobilenet_v1_075_%d_%d_quant_decoder_edgetpu.tflite'
-
+    default_model = 'models/mobilenet/posenet_mobilenet_v1_075_%d_%d_quant.tflite'
     if args.res == '480x360':
         src_size = (640, 480)
         appsink_size = (480, 360)
@@ -125,9 +107,9 @@ def main():
         model = args.model or default_model % (721, 1281)
 
     print('Loading model: ', model)
-    engine = PoseEngine(model, mirror=args.mirror)
-    input_shape = engine.get_input_tensor_shape()
-    inference_size = (input_shape[2], input_shape[1])
+    engine = PoseEngine(model, mirror=args.mirror,
+                        offsetRefineStep=10, scoreThreshold=0.8,
+                        maxPoseDetections=5, nmsRadius=30, minPoseConfidence=0.15)
 
     n = 0
     sum_process_time = 0
@@ -143,7 +125,7 @@ def main():
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         start_time = time.monotonic()
-        outputs, inference_time = engine.DetectPosesInImage(img)
+        outputs, inference_time = engine.ParseOutput(engine.run_inference(img))
         end_time = time.monotonic()
         n += 1
         sum_process_time += 1000 * (end_time - start_time)
@@ -151,8 +133,8 @@ def main():
 
         avg_inference_time = sum_inference_time / n
         text_line = 'PoseNet: %.1fms (%.2f fps) TrueFPS: %.2f Nposes %d' % (
-            avg_inference_time, 1000 / avg_inference_time, next(fps_counter), len(outputs)
-        )
+                avg_inference_time, 1000 / avg_inference_time, next(fps_counter), len(outputs)
+                )
 
         if args.mirror:
             frame = cv2.flip(frame, 1)
@@ -161,7 +143,7 @@ def main():
             draw_pose(frame, pose, src_size, appsink_size)
 
         cv2.imshow('frame', frame)
-        if cv2.waitKey(1) & 0xFF == 27:
+        if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
     cap.release()

@@ -1,0 +1,3 @@
+Télécharger les modèles à
+
+https://github.com/google-coral/project-posenet

@@ -230,10 +230,10 @@ def main():
         if args.mirror:
             color_image = cv2.flip(color_image, 1)
             depth_image = cv2.flip(depth_image, 1)
-        shadow_text(color_image, 10, 20, text_line)
+        # #shadow_text(color_image, 10, 20, text_line)
         shadow_text(depth_image, 10, 20, text_line)
         for pose in outputs:
-            draw_pose(color_image, pose, src_size, appsink_size)
+            # #draw_pose(color_image, pose, src_size, appsink_size)
             draw_pose(depth_image, pose, src_size, appsink_size)
 
         cv2.imshow('color', color_image)

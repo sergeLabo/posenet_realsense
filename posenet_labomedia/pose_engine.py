@@ -32,7 +32,7 @@ import cv2
 EDGETPU_SHARED_LIB = 'libedgetpu.so.1'
 POSENET_SHARED_LIB = os.path.join(
     'posenet_lib', os.uname().machine, 'posenet_decoder.so')
-
+print("POSENET_SHARED_LIB :", POSENET_SHARED_LIB)
 
 class KeypointType(enum.IntEnum):
     """Pose kepoints."""
@@ -77,6 +77,7 @@ class PoseEngine():
         Raises:
           ValueError: An error occurred when model output is invalid.
         """
+
         edgetpu_delegate = load_delegate(EDGETPU_SHARED_LIB)
         posenet_decoder_delegate = load_delegate(POSENET_SHARED_LIB)
         self._interpreter = Interpreter(

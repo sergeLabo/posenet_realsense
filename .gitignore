@@ -2,8 +2,9 @@
 *.geany
 *.geanywb
 
-# models
-*.tflite
+# autres projets
+project-posenet-master/
+posenet_neuralassembly/
 
 # Python test
 *_old.py

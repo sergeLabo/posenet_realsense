@@ -15,39 +15,34 @@
 import argparse
 import collections
 from functools import partial
-import re
 import time
 
-import numpy as np
-# #from PIL import Image
 import svgwrite
 import gstreamer
 
-from pose_engine import PoseEngine
-from pose_engine import KeypointType
+from pose_engine_cpu import PoseEngine
 
 EDGES = (
-    (KeypointType.NOSE, KeypointType.LEFT_EYE),
-    (KeypointType.NOSE, KeypointType.RIGHT_EYE),
-    (KeypointType.NOSE, KeypointType.LEFT_EAR),
-    (KeypointType.NOSE, KeypointType.RIGHT_EAR),
-    (KeypointType.LEFT_EAR, KeypointType.LEFT_EYE),
-    (KeypointType.RIGHT_EAR, KeypointType.RIGHT_EYE),
-    (KeypointType.LEFT_EYE, KeypointType.RIGHT_EYE),
-    (KeypointType.LEFT_SHOULDER, KeypointType.RIGHT_SHOULDER),
-    (KeypointType.LEFT_SHOULDER, KeypointType.LEFT_ELBOW),
-    (KeypointType.LEFT_SHOULDER, KeypointType.LEFT_HIP),
-    (KeypointType.RIGHT_SHOULDER, KeypointType.RIGHT_ELBOW),
-    (KeypointType.RIGHT_SHOULDER, KeypointType.RIGHT_HIP),
-    (KeypointType.LEFT_ELBOW, KeypointType.LEFT_WRIST),
-    (KeypointType.RIGHT_ELBOW, KeypointType.RIGHT_WRIST),
-    (KeypointType.LEFT_HIP, KeypointType.RIGHT_HIP),
-    (KeypointType.LEFT_HIP, KeypointType.LEFT_KNEE),
-    (KeypointType.RIGHT_HIP, KeypointType.RIGHT_KNEE),
-    (KeypointType.LEFT_KNEE, KeypointType.LEFT_ANKLE),
-    (KeypointType.RIGHT_KNEE, KeypointType.RIGHT_ANKLE),
+    ('nose', 'left eye'),
+    ('nose', 'right eye'),
+    ('nose', 'left ear'),
+    ('nose', 'right ear'),
+    ('left ear', 'left eye'),
+    ('right ear', 'right eye'),
+    ('left eye', 'right eye'),
+    ('left shoulder', 'right shoulder'),
+    ('left shoulder', 'left elbow'),
+    ('left shoulder', 'left hip'),
+    ('right shoulder', 'right elbow'),
+    ('right shoulder', 'right hip'),
+    ('left elbow', 'left wrist'),
+    ('right elbow', 'right wrist'),
+    ('left hip', 'right hip'),
+    ('left hip', 'left knee'),
+    ('right hip', 'right knee'),
+    ('left knee', 'left ankle'),
+    ('right knee', 'right ankle'),
 )
-
 
 def shadow_text(dwg, x, y, text, font_size=16):
     dwg.add(dwg.text(text, insert=(x + 1, y + 1), fill='black',
@@ -55,30 +50,28 @@ def shadow_text(dwg, x, y, text, font_size=16):
     dwg.add(dwg.text(text, insert=(x, y), fill='white',
                      font_size=font_size, style='font-family:sans-serif'))
 
-
-def draw_pose(dwg, pose, src_size, inference_box, color='yellow', threshold=0.2):
+def draw_pose(dwg, pose, src_size, inference_box, color='yellow', minPartConfidence=0.1):
     box_x, box_y, box_w, box_h = inference_box
-    scale_x = src_size[0] / box_w
-    scale_y = src_size[1] / box_h
+    scale_x, scale_y = src_size[0] / box_w, src_size[1] / box_h
     xys = {}
+    kscore = {}
     for label, keypoint in pose.keypoints.items():
-        # keypoint = Keypoint(point=Point(x=97.07013, y=168.93994), score=0.011106971)
-        if keypoint.score < threshold: continue
-
+        if keypoint.score < minPartConfidence: continue
         # Offset and scale to source coordinate space.
-        kp_x = int((keypoint.point[0] - box_x) * scale_x)
-        kp_y = int((keypoint.point[1] - box_y) * scale_y)
+        kp_y = int((keypoint.yx[0] - box_y) * scale_y)
+        kp_x = int((keypoint.yx[1] - box_x) * scale_x)
 
         xys[label] = (kp_x, kp_y)
+        kscore[label] = keypoint.score
         dwg.add(dwg.circle(center=(int(kp_x), int(kp_y)), r=5,
                            fill='cyan', fill_opacity=keypoint.score, stroke=color))
 
     for a, b in EDGES:
         if a not in xys or b not in xys: continue
+        if kscore[a] < minPartConfidence or kscore[b] < minPartConfidence: continue
         ax, ay = xys[a]
         bx, by = xys[b]
         dwg.add(dwg.line(start=(ax, ay), end=(bx, by), stroke=color, stroke_width=2))
-
 
 def avg_fps_counter(window_size):
     window = collections.deque(maxlen=window_size)
@@ -91,7 +84,6 @@ def avg_fps_counter(window_size):
         prev = curr
         yield len(window) / sum(window)
 
-
 def run(inf_callback, render_callback):
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('--mirror', help='flip video horizontally', action='store_true')
@@ -103,23 +95,21 @@ def run(inf_callback, render_callback):
     parser.add_argument('--jpeg', help='Use image/jpeg input', action='store_true')
     args = parser.parse_args()
 
-    default_model = 'models/mobilenet/posenet_mobilenet_v1_075_%d_%d_quant_decoder_edgetpu.tflite'
+    default_model = 'models/mobilenet/posenet_mobilenet_v1_075_%d_%d_quant.tflite'
     if args.res == '480x360':
         src_size = (640, 480)
-        appsink_size = (480, 360)
         model = args.model or default_model % (353, 481)
     elif args.res == '640x480':
         src_size = (640, 480)
-        appsink_size = (640, 480)
         model = args.model or default_model % (481, 641)
     elif args.res == '1280x720':
         src_size = (1280, 720)
-        appsink_size = (1280, 720)
         model = args.model or default_model % (721, 1281)
 
     print('Loading model: ', model)
-
-    engine = PoseEngine(model)
+    engine = PoseEngine(model,
+                        offsetRefineStep=10, scoreThreshold=0.8,
+                        maxPoseDetections=5, nmsRadius=30, minPoseConfidence=0.15)
     input_shape = engine.get_input_tensor_shape()
     inference_size = (input_shape[2], input_shape[1])
 
@@ -136,8 +126,7 @@ def main():
     n = 0
     sum_process_time = 0
     sum_inference_time = 0
-    ctr = 0
-    fps_counter = avg_fps_counter(30)
+    fps_counter  = avg_fps_counter(30)
 
     def run_inference(engine, input_tensor):
         return engine.run_inference(input_tensor)
@@ -147,11 +136,11 @@ def main():
 
         svg_canvas = svgwrite.Drawing('', size=src_size)
         start_time = time.monotonic()
-        outputs, inference_time = engine.ParseOutput()
+        outputs, inference_time = engine.ParseOutput(output)
         end_time = time.monotonic()
         n += 1
         sum_process_time += 1000 * (end_time - start_time)
-        sum_inference_time += inference_time * 1000
+        sum_inference_time += inference_time
 
         avg_inference_time = sum_inference_time / n
         text_line = 'PoseNet: %.1fms (%.2f fps) TrueFPS: %.2f Nposes %d' % (
@@ -160,7 +149,6 @@ def main():
 
         shadow_text(svg_canvas, 10, 20, text_line)
         for pose in outputs:
-            # #print(inference_box)
             draw_pose(svg_canvas, pose, src_size, inference_box)
         return (svg_canvas.tostring(), False)
 
