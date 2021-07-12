@@ -4,7 +4,7 @@
 
 # autres projets
 project-posenet-master/
-posenet_neuralassembly/*
+posenet_neuralassembly/
 
 # Python test
 *_old.py
