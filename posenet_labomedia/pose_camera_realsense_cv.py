@@ -12,23 +12,22 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import argparse
+# Modified by La Labomedia July 2021
+
+
 import collections
 from functools import partial
-import re
 import time
 
 import numpy as np
-# #from PIL import Image
-# #import svgwrite
-# #import gstreamer
-
 import cv2
 import pyrealsense2 as rs
-import numpy as np
 
 from pose_engine import PoseEngine
 from pose_engine import KeypointType
+
+from myconfig import MyConfig
+
 
 EDGES = (
     (KeypointType.NOSE, KeypointType.LEFT_EYE),
@@ -60,55 +59,32 @@ def shadow_text(img, x, y, text, font_size=16):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
 
-def draw_pose_old(img, pose, src_size, appsink_size, color=(0, 255, 255), threshold=0.2):
-    scale_x = src_size[0] / appsink_size[0]
-    scale_y = src_size[1] / appsink_size[1]
-    xys = {}
-    for label, keypoint in pose.keypoints.items():
-        if keypoint.score < threshold: continue
-        # Offset and scale to source coordinate space.
-        kp_y = int(scale_y*keypoint.yx[0])
-        kp_x = int(scale_x*keypoint.yx[1])
-        xys[label] = (kp_x, kp_y)
-        cv2.circle(img, (kp_x, kp_y), 5, color=(209, 156, 0), thickness=-1) #cyan
-        cv2.circle(img, (kp_x, kp_y), 6, color=color, thickness=1)
-
-    for a, b in EDGES:
-        if a not in xys or b not in xys: continue
-        ax, ay = xys[a]
-        bx, by = xys[b]
-        cv2.line(img, (ax, ay), (bx, by), color, 2)
-
-
 def draw_pose(img, pose, src_size, appsink_size, color=(0, 255, 255), threshold=0.2):
     """
     pose = Pose(keypoints={
     <KeypointType.NOSE: 0>: Keypoint(point=Point(x=357.3, y=218.4), score=0.99),
-    src_size = (640, 480)
-    appsink_size = (640, 480)
-
+    si args.res = '480x360'
+            src_size = (640, 480)
+            appsink_size = (480, 360)
     """
-    box_x, box_y = 641, 480
-    # appsink_size = 640, 480
-    # src_size = 640, 480
-    scale_x = 1  # src_size[0] / appsink_size[0]
-    scale_y = 1  # src_size[1] / appsink_size[1]
+
+    # Calcul des scales: si src_size = '480x360' --> appsink_size = (480, 360)
+    box_x, box_y = src_size[0], src_size[0]
+    scale_x = src_size[0] / appsink_size[0]
+    scale_y = src_size[1] / appsink_size[1]
+
     xys = {}
     for label, keypoint in pose.keypoints.items():
         # keypoint = Keypoint(point=Point(x=445.2, y=403.1), score=0.309)
-        if keypoint.score < threshold:
-            continue
-        # Offset and scale to source coordinate space.
-        # #kp_y = int(scale_y*keypoint.yx[0])
-        # #kp_x = int(scale_x*keypoint.yx[1])
-        # #kp_x = -int((keypoint.point[0] - box_x) * scale_x)
-        # #kp_y = -int((keypoint.point[1] - box_y) * scale_y)
-        kp_x = int(keypoint.point[0])
-        kp_y = int(keypoint.point[1])
+        if keypoint.score > threshold:
+            # Offset and scale to source coordinate space.
+            # Suppression de Offset, pourquoi Offset ? pour 480x360 ?
+            kp_x = int((keypoint.point[0]) * scale_x)
+            kp_y = int((keypoint.point[1]) * scale_y)
 
-        xys[label] = (kp_x, kp_y)
-        cv2.circle(img, (kp_x, kp_y), 5, color=(209, 156, 0), thickness=-1) #cyan
-        cv2.circle(img, (kp_x, kp_y), 6, color=color, thickness=1)
+            xys[label] = (kp_x, kp_y)
+            cv2.circle(img, (kp_x, kp_y), 5, color=(209, 156, 0), thickness=-1) #cyan
+            cv2.circle(img, (kp_x, kp_y), 6, color=color, thickness=1)
 
     for a, b in EDGES:
         if a not in xys or b not in xys: continue
@@ -128,52 +104,38 @@ def avg_fps_counter(window_size):
         prev = curr
         yield len(window) / sum(window)
 
+class PoseRealsense:
+    def __init__(self, **kwargs):
+        self.threshold = kwargs.get('threshold', 0.1)
 
-def main():
-    parser = argparse.ArgumentParser(formatter_class=\
-                                     argparse.ArgumentDefaultsHelpFormatter)
 
-    parser.add_argument('--mirror',
-                        help='flip video horizontally',
-                        action='store_true')
-    parser.add_argument('--model',
-                        help='.tflite model path.',
-                        required=False)
-    parser.add_argument('--res',
-                        help='Resolution',
-                        default='640x480',
-                        choices=['480x360', '640x480', '1280x720'])
-    parser.add_argument('--videosrc',
-                        help='Which video source to use',
-                        default='/dev/video0')
-    parser.add_argument('--h264',
-                        help='Use video/x-h264 input',
-                        action='store_true')
-    parser.add_argument('--jpeg',
-                        help='Use image/jpeg input',
-                        action='store_true')
+def main(**kwargs):
 
-    args = parser.parse_args()
+    width = kwargs.get('width_input', 640)
+    print(width)
+    height = kwargs.get('height_input', 480)
+    res = str(width) + 'x' + str(height)
+    print("Résolution =", res)
 
-    args.res = '640x480'  # '1280x720'  #
+    res = '1280x720'  # '640x480'
     default_model = 'models/mobilenet/posenet_mobilenet_v1_075_%d_%d_quant_decoder_edgetpu.tflite'
 
-    if args.res == '480x360':
+    if res == '480x360':
         src_size = (640, 480)
         appsink_size = (480, 360)
-        model = args.model or default_model % (353, 481)
-    elif args.res == '640x480':
+        model = default_model % (353, 481)
+    elif res == '640x480':
         src_size = (640, 480)
         appsink_size = (640, 480)
-        model = args.model or default_model % (481, 641)
-    elif args.res == '1280x720':
+        model = default_model % (481, 641)
+    elif res == '1280x720':
         src_size = (1280, 720)
         appsink_size = (1280, 720)
-        model = args.model or default_model % (721, 1281)
+        model = default_model % (721, 1281)
 
     print('Loading model: ', model)
 
-    engine = PoseEngine(model, mirror=args.mirror)
+    engine = PoseEngine(model, mirror=False)
     input_shape = engine.get_input_tensor_shape()
     inference_size = (input_shape[2], input_shape[1])
 
@@ -219,24 +181,21 @@ def main():
         outputs, inference_time = engine.DetectPosesInImage(color_image_rgb)
         end_time = time.monotonic()
         n += 1
-        sum_process_time += 1000 * (end_time - start_time)
+        sum_process_time += 1000*(end_time - start_time)
         sum_inference_time += inference_time
 
         avg_inference_time = sum_inference_time / n
         text_line = 'PoseNet: %.1fms (%.2f fps) TrueFPS: %.2f Nposes %d' % (
-            avg_inference_time, 1000 / avg_inference_time, next(fps_counter), len(outputs)
+            avg_inference_time, 1000/avg_inference_time, next(fps_counter), len(outputs)
         )
 
-        if args.mirror:
-            color_image = cv2.flip(color_image, 1)
-            depth_image = cv2.flip(depth_image, 1)
         # #shadow_text(color_image, 10, 20, text_line)
         shadow_text(depth_image, 10, 20, text_line)
         for pose in outputs:
             # #draw_pose(color_image, pose, src_size, appsink_size)
             draw_pose(depth_image, pose, src_size, appsink_size)
 
-        cv2.imshow('color', color_image)
+        # #cv2.imshow('color', color_image)
         cv2.imshow('depth', depth_image)
 
         if cv2.waitKey(1) & 0xFF == 27:
@@ -245,5 +204,12 @@ def main():
     cv2.destroyAllWindows()
     return
 
+
 if __name__ == '__main__':
-    main()
+
+    ini_file = 'posenet.ini'
+    my_config = MyConfig(ini_file)
+    kwargs = my_config.conf['pose_camera_realsense_cv']
+    print(f"Configuration:\n{kwargs}\n\n")
+
+    main(**kwargs)

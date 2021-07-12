@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Modified by La Labomedia July 2021
+
+
 import argparse
 import collections
 import time
@@ -92,6 +95,7 @@ def main():
     parser.add_argument('--jpeg', help='Use image/jpeg input', action='store_true')
     args = parser.parse_args()
 
+    args.res = '1280x720'  # '640x480'
     default_model = 'models/mobilenet/posenet_mobilenet_v1_075_%d_%d_quant.tflite'
     if args.res == '480x360':
         src_size = (640, 480)

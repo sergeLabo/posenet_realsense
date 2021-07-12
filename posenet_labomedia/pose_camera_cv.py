@@ -56,29 +56,25 @@ def draw_pose(img, pose, src_size, appsink_size, color=(0, 255, 255), threshold=
     <KeypointType.NOSE: 0>: Keypoint(point=Point(x=357.3, y=218.4), score=0.99),
     src_size = (640, 480)
     appsink_size = (640, 480)
-
     """
-    box_x, box_y = 641, 480
-    # appsink_size = 640, 480
-    # src_size = 640, 480
-    scale_x = 1  # src_size[0] / appsink_size[0]
-    scale_y = 1  # src_size[1] / appsink_size[1]
+
+    # Calcul des scales: si src_size = '480x360' --> appsink_size = (480, 360)
+    box_x, box_y = src_size[0], src_size[0]  # 641, 480
+    scale_x = src_size[0] / appsink_size[0]
+    scale_y = src_size[1] / appsink_size[1]
+
     xys = {}
     for label, keypoint in pose.keypoints.items():
         # keypoint = Keypoint(point=Point(x=445.2, y=403.1), score=0.309)
-        if keypoint.score < threshold:
-            continue
-        # Offset and scale to source coordinate space.
-        # #kp_y = int(scale_y*keypoint.yx[0])
-        # #kp_x = int(scale_x*keypoint.yx[1])
-        # #kp_x = -int((keypoint.point[0] - box_x) * scale_x)
-        # #kp_y = -int((keypoint.point[1] - box_y) * scale_y)
-        kp_x = int(keypoint.point[0])
-        kp_y = int(keypoint.point[1])
+        if keypoint.score > threshold:
+            # Offset and scale to source coordinate space.
+            # Suppression de Offset, pourquoi Offset ? pour 480x360 ?
+            kp_x = int((keypoint.point[0]) * scale_x)
+            kp_y = int((keypoint.point[1]) * scale_y)
 
-        xys[label] = (kp_x, kp_y)
-        cv2.circle(img, (kp_x, kp_y), 5, color=(209, 156, 0), thickness=-1) #cyan
-        cv2.circle(img, (kp_x, kp_y), 6, color=color, thickness=1)
+            xys[label] = (kp_x, kp_y)
+            cv2.circle(img, (kp_x, kp_y), 5, color=(209, 156, 0), thickness=-1) #cyan
+            cv2.circle(img, (kp_x, kp_y), 6, color=color, thickness=1)
 
     for a, b in EDGES:
         if a not in xys or b not in xys: continue
@@ -108,7 +104,7 @@ def main():
     parser.add_argument('--jpeg', help='Use image/jpeg input', action='store_true')
     args = parser.parse_args()
 
-    args.res = '640x480'  # '1280x720'  #
+    args.res = '640x480'  #
     default_model = 'models/mobilenet/posenet_mobilenet_v1_075_%d_%d_quant_decoder_edgetpu.tflite'
 
     if args.res == '480x360':
@@ -138,8 +134,8 @@ def main():
     while True:
         ret, frame = cap.read()
         img = cv2.resize(frame,
-                       dsize=appsink_size,
-                       interpolation=cv2.INTER_NEAREST)
+                         dsize=appsink_size,
+                         interpolation=cv2.INTER_NEAREST)
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         start_time = time.monotonic()

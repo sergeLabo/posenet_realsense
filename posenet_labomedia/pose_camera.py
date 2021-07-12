@@ -12,19 +12,18 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Modified by La Labomedia July 2021
+
+
 import argparse
 import collections
 from functools import partial
-import re
 import time
 
-import numpy as np
-# #from PIL import Image
 import svgwrite
 import gstreamer
 
-from pose_engine import PoseEngine
-from pose_engine import KeypointType
+from pose_engine import PoseEngine, KeypointType
 
 EDGES = (
     (KeypointType.NOSE, KeypointType.LEFT_EYE),
@@ -103,6 +102,7 @@ def run(inf_callback, render_callback):
     parser.add_argument('--jpeg', help='Use image/jpeg input', action='store_true')
     args = parser.parse_args()
 
+    args.res = '640x480'
     default_model = 'models/mobilenet/posenet_mobilenet_v1_075_%d_%d_quant_decoder_edgetpu.tflite'
     if args.res == '480x360':
         src_size = (640, 480)
@@ -123,12 +123,14 @@ def run(inf_callback, render_callback):
     input_shape = engine.get_input_tensor_shape()
     inference_size = (input_shape[2], input_shape[1])
 
-    gstreamer.run_pipeline(partial(inf_callback, engine), partial(render_callback, engine),
-                           src_size, inference_size,
-                           mirror=args.mirror,
-                           videosrc=args.videosrc,
-                           h264=args.h264,
-                           jpeg=args.jpeg
+    gstreamer.run_pipeline( partial(inf_callback, engine),
+                            partial(render_callback, engine),
+                            src_size,
+                            inference_size,
+                            mirror=args.mirror,
+                            videosrc=args.videosrc,
+                            h264=args.h264,
+                            jpeg=args.jpeg
                            )
 
 

@@ -12,12 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Modified by La Labomedia July 2021
+
 
 import sys
 import threading
 import time
-
-import numpy as np
 
 import gi
 gi.require_version('Gst', '1.0')

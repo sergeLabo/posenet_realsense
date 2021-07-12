@@ -12,8 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Modified by La Labomedia July 2021
+
+
 from pycoral.utils import edgetpu
-# #from PIL import Image
 from tflite_runtime.interpreter import load_delegate
 from tflite_runtime.interpreter import Interpreter
 
@@ -21,8 +23,6 @@ import collections
 import enum
 import math
 import os
-import platform
-import sys
 import time
 
 import numpy as np
@@ -115,15 +115,11 @@ class PoseEngine():
         Args:
           img: numpy array containing image
         """
-        # #print(img.shape)  # (480, 640, 3)
-        # #print(img.size)
+
         input_details = self._interpreter.get_input_details()
-        # #image_width, image_height = img.size
         image_width, image_height = img.shape[1], img.shape[0]
 
-        # #resized_image = img.resize((self._input_width,
-                                    # #self._input_height),
-                                    # #Image.NEAREST)
+        # cv2 au lieu de PIL
         resized_image = cv2.resize( img,
                                     (self._input_width, self._input_height),
                                     interpolation=cv2.INTER_NEAREST)
