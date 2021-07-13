@@ -2,12 +2,12 @@
 from time import time
 import json
 
-from oscpy.server import OSCThreadServer
+from scripts.oscpy.server import OSCThreadServer
 
 from bge import logic as gl
 from scripts.utils import get_all_objects, add_object, get_points_blender
-from scripts.utils import JOINTS, PAIRS_COCO, PAIRS_MPI
 from scripts.sound import EasyAudio
+from scripts.utils import PAIRS
 
 
 def default_handler(*args):
@@ -66,7 +66,7 @@ def main():
     # 18 est le  body au centre de 11 et 12
     # 19 est le centre des yeux pour la tête
     for i in ["00", "01", "02", "03", "04", "05", "06", "07", "08", "09",
-                "10", "11", "12", "13", "14", "15", "16", "17", "18", "19"]:
+                "10", "11", "12", "13", "14", "15", "16", "17"]:
         gl.spheres.append(gl.all_obj[i])
 
     # AA sur Text
@@ -85,14 +85,7 @@ def main():
 
     osc_server_init()
 
-    # Le filtre Savonarol Wakowski de scipy
-    gl.mode = "COCO" # "MPI" ou "COCO"
-    if gl.mode == "MPI":
-        gl.nombre = 15
-        gl.pairs = PAIRS_MPI
-    elif gl.mode == "COCO":
-        gl.nombre = 18
-        gl.pairs = PAIRS_COCO
+    gl.pairs = PAIRS
 
     # Placement et échelle dans la scène
     gl.scale = 1

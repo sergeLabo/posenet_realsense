@@ -131,7 +131,7 @@ def visible_or_not():
         for name, obj in gl.all_obj.items():
             if "Text" in name:
                 obj.visible = 1
-        for num in JOINTS.keys():
+        for num in JOINTS:
             gl.all_obj[num].visible = 1
 
         for cube in gl.pairs.keys():
@@ -142,7 +142,7 @@ def visible_or_not():
         for name, obj in gl.all_obj.items():
             if "Text" in name:
                 obj.visible = 0
-        for num in JOINTS.keys():
+        for num in JOINTS:
             gl.all_obj[num].visible = 0
         for cube in gl.pairs.keys():
             gl.all_obj[cube].visible = 0
@@ -160,7 +160,7 @@ def set_cubes_position_orientation_scale():
 
 
 def set_sphere_position_scale():
-    for i in range(14):  # gl.nombre):
+    for i in range(17):
         if gl.points[i]:
             v = Vector(gl.points[i])*gl.scale
             gl.spheres[i].worldPosition = [ v[0] + gl.left_right,
@@ -186,7 +186,7 @@ def main():
         # #print("Maj")
         set_sphere_position_scale()
         set_cubes_position_orientation_scale()
-        set_body_position_orientation()
+        # #set_body_position_orientation()
         # #set_head_location()
         # On repasse par ici si nouveaux poins
         gl.points = None

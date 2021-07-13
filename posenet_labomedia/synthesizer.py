@@ -12,6 +12,9 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+# Modification by La Labomedia July 2021
+
+
 import itertools
 import svgwrite
 import time
@@ -96,6 +99,10 @@ class Pose:
 
 
 class PoseTracker:
+    """Used to midi noteoff
+    si dans les anciennes notes il n'y a pas les nouvelles notes, elles sont off
+    """
+
     def __init__(self):
         self.prev_poses = []
         self.next_pose_id = 0

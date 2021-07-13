@@ -8,6 +8,7 @@ posenet_neuralassembly/
 
 # Python test
 *_old.py
+old/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

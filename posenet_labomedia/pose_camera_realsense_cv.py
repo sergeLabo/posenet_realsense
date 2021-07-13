@@ -12,12 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Modified by La Labomedia July 2021
+# Modification by La Labomedia July 2021
 
 
-import collections
-from functools import partial
+import os
 import time
+import enum
 
 import numpy as np
 import cv2
@@ -27,6 +27,7 @@ from pose_engine import PoseEngine
 from pose_engine import KeypointType
 
 from myconfig import MyConfig
+from osc import OscClient
 
 
 EDGES = (
@@ -52,40 +53,175 @@ EDGES = (
 )
 
 
-def shadow_text(img, x, y, text, font_size=16):
-    cv2.putText(img, text,(x+1, y+1),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
-    cv2.putText(img, text,(x, y),
-                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+class KeypointType(enum.IntEnum):
+    """Pose keypoints avec leur indice pour la liste OSC."""
+    NOSE = 0
+    LEFT_EYE = 1
+    RIGHT_EYE = 2
+    LEFT_EAR = 3
+    RIGHT_EAR = 4
+    LEFT_SHOULDER = 5
+    RIGHT_SHOULDER = 6
+    LEFT_ELBOW = 7
+    RIGHT_ELBOW = 8
+    LEFT_WRIST = 9
+    RIGHT_WRIST = 10
+    LEFT_HIP = 11
+    RIGHT_HIP = 12
+    LEFT_KNEE = 13
+    RIGHT_KNEE = 14
+    LEFT_ANKLE = 15
+    RIGHT_ANKLE = 16
 
 
-def draw_pose(img, pose, src_size, appsink_size, color=(0, 255, 255), threshold=0.2):
+class PoseRealsense:
+    """Capture avec  Camera RealSense D455,
+    détection de la pose avec Coral USB Stick,
+    calcul des coordonnées 3D,
+    et envoi en OSC des listes de ces coordonnées
     """
-    pose = Pose(keypoints={
-    <KeypointType.NOSE: 0>: Keypoint(point=Point(x=357.3, y=218.4), score=0.99),
-    si args.res = '480x360'
-            src_size = (640, 480)
-            appsink_size = (480, 360)
+
+    def __init__(self, **kwargs):
+        """Les paramètres sont à définir dans le fichier posenet.ini"""
+
+        self.threshold = kwargs.get('threshold', 0.2)
+        self.around = kwargs.get('around', 5)
+        self.width = kwargs.get('width_input', 1280)
+        self.height = kwargs.get('height_input', 720)
+
+        self.set_pipeline()
+        self.get_engine()
+        self.osc = OscClient(**kwargs)
+        self.get_colors()
+
+    def get_colors(self):
+        """Crée une liste de 5 couleur"""
+        self.color = [[250, 0, 0], [0, 250, 0], [0, 0, 250],
+                        [250, 250, 0],[120, 122, 120]]
+
+    def get_engine(self):
+        res = str(self.width) + 'x' + str(self.height)
+        print("width:", self.width, ", height:", self.height)
+        print("Résolution =", res)
+
+        if res == "1280x720":
+            self.src_size = (1280, 720)
+            self.appsink_size = (1280, 720)
+            model_size = (721, 1281)
+
+        elif res == "640x480":
+            self.src_size = (640, 480)
+            self.appsink_size = (640, 480)
+            model_size = (481, 641)
+
+        else:
+            print(f"La résolution {res} n'est pas possible.")
+            os._exit(0)
+
+        model = (f'models/mobilenet/posenet_mobilenet_v1_075_'
+                 f'{model_size[0]}_{model_size[1]}'
+                 f'_quant_decoder_edgetpu.tflite'   )
+        print('Loading model: ', model)
+        self.engine = PoseEngine(model, mirror=False)
+
+    def set_pipeline(self):
+
+        self.pipeline = rs.pipeline()
+        config = rs.config()
+        pipeline_wrapper = rs.pipeline_wrapper(self.pipeline)
+        pipeline_profile = config.resolve(pipeline_wrapper)
+        device = pipeline_profile.get_device()
+        config.enable_stream(rs.stream.color, self.width, self.height,
+                                                            rs.format.bgr8, 30)
+        config.enable_stream(rs.stream.depth, self.width, self.height,
+                                                            rs.format.z16, 30)
+        self.pipeline.start(config)
+        self.align = rs.align(rs.stream.color)
+        unaligned_frames = self.pipeline.wait_for_frames()
+        frames = self.align.process(unaligned_frames)
+        depth = frames.get_depth_frame()
+        self.depth_intrinsic = depth.profile.as_video_stream_profile().intrinsics
+
+        # Vérification de la taille des images
+        color_frame = frames.get_color_frame()
+        img = np.asanyarray(color_frame.get_data())
+        print(f"Vérification de la taille des images:"
+              f"     {img.shape[1]}x{img.shape[0]}")
+
+    def run(self, **kwargs):
+
+        t0 = time.time()
+        nbr = 0
+        while True:
+            nbr += 1
+            points_3D = None
+
+            frames = self.pipeline.wait_for_frames()
+            # Align the depth frame to color frame
+            aligned_frames = self.align.process(frames)
+
+            color = aligned_frames.get_color_frame()
+            depth = aligned_frames.get_depth_frame()
+            if not depth:
+                continue
+
+            color_data = color.as_frame().get_data()
+            color_arr = np.asanyarray(color_data)
+
+            outputs, inference_time = self.engine.DetectPosesInImage(color_arr)
+
+            # Pour tous les personnages
+            for pose in outputs:
+                # Index dans la liste des poses
+                ind = outputs.index(pose)
+                # choix de la couleur
+                col = outputs.index(pose) % 5
+
+                # Récup des xys = {0: [790, 331], 2: [780, 313],  ... }
+                xys = get_points_2D(outputs, threshold=self.threshold)
+                # Seul le premier est converti en 3D, et envoyé en OSC
+                if ind == 0:
+                    points_2D = xys
+
+                # Dessin en couleur
+                draw_pose(color_arr,  xys, color=self.color[col])
+
+            # Pour le premier
+            if len(outputs) > 0:
+                points_3D = get_points_3D(points_2D, depth,
+                                            self.depth_intrinsic, self.around)
+                if points_3D:
+                    self.osc.send_global_message(points_3D, bodyId=0)
+
+            cv2.imshow('color', color_arr)
+
+            if time.time() - t0 > 1:
+                print("FPS =", nbr)
+                t0, nbr = time.time(), 0
+
+            if cv2.waitKey(1) & 0xFF == 27:
+                break
+
+        cv2.destroyAllWindows()
+        return
+
+
+def draw_pose(img, xys, color):
+    """Affiche les points 2D dans l'image
+    xys = {0: [790, 331], 2: [780, 313],  ... }
     """
+    points = []
+    for xy in xys.values():
+        points.append(xy)
 
-    # Calcul des scales: si src_size = '480x360' --> appsink_size = (480, 360)
-    box_x, box_y = src_size[0], src_size[0]
-    scale_x = src_size[0] / appsink_size[0]
-    scale_y = src_size[1] / appsink_size[1]
+    # Dessin des points
+    for point in points:
+        x = point[0]
+        y = point[1]
+        cv2.circle(img, (x, y), 5, color=(209, 156, 0), thickness=-1)
+        cv2.circle(img, (x, y), 6, color=color, thickness=1)
 
-    xys = {}
-    for label, keypoint in pose.keypoints.items():
-        # keypoint = Keypoint(point=Point(x=445.2, y=403.1), score=0.309)
-        if keypoint.score > threshold:
-            # Offset and scale to source coordinate space.
-            # Suppression de Offset, pourquoi Offset ? pour 480x360 ?
-            kp_x = int((keypoint.point[0]) * scale_x)
-            kp_y = int((keypoint.point[1]) * scale_y)
-
-            xys[label] = (kp_x, kp_y)
-            cv2.circle(img, (kp_x, kp_y), 5, color=(209, 156, 0), thickness=-1) #cyan
-            cv2.circle(img, (kp_x, kp_y), 6, color=color, thickness=1)
-
+    # Dessin des os
     for a, b in EDGES:
         if a not in xys or b not in xys: continue
         ax, ay = xys[a]
@@ -93,116 +229,74 @@ def draw_pose(img, pose, src_size, appsink_size, color=(0, 255, 255), threshold=
         cv2.line(img, (ax, ay), (bx, by), color, 2)
 
 
-def avg_fps_counter(window_size):
-    window = collections.deque(maxlen=window_size)
-    prev = time.monotonic()
-    yield 0.0  # First fps value.
+def get_points_2D(outputs, threshold=0.2):
+    """Pour 1 personnage capté:
+     [Pose(keypoints={
+    <KeypointType.NOSE: 0>: Keypoint(point=Point(x=717.3, y=340.8), score=0.98),
+    <KeypointType.LEFT_EYE: 1>: Keypoint(point=Point(x=716.2, y=312.5), score=0.6),
+    <KeypointType.RIGHT_EYE: 2>: Keypoint(point=Point(x=699.6, y=312.8), score=0.98),
+    <KeypointType.LEFT_EAR: 3>: Keypoint(point=Point(x=720.13306, y=314.34964)
+                    },
+    score=0.34098125)]
+    xys = {0: (698, 320), 1: (698, 297), 2: (675, 295), .... }
+    """
 
-    while True:
-        curr = time.monotonic()
-        window.append(curr - prev)
-        prev = curr
-        yield len(window) / sum(window)
-
-class PoseRealsense:
-    def __init__(self, **kwargs):
-        self.threshold = kwargs.get('threshold', 0.1)
+    pose = outputs[0]
+    xys = {}
+    for label, keypoint in pose.keypoints.items():
+        if keypoint.score > threshold:
+            xys[label.value] = [int(keypoint.point[0]), int(keypoint.point[1])]
+    return xys
 
 
-def main(**kwargs):
+def get_points_3D(xys, depth, depth_intrinsic, around):
+    """Calcul des coordonnées 3D dans un repère centré sur la caméra,
+    avec le z = profondeur
+    La profondeur est une moyenne de la profondeur des points autour,
+    sauf les trop loins et les extrêmes.
+    """
 
-    width = kwargs.get('width_input', 640)
-    print(width)
-    height = kwargs.get('height_input', 480)
-    res = str(width) + 'x' + str(height)
-    print("Résolution =", res)
+    points_3D = [None]*17
+    for key, val in xys.items():
+        if val:
+            #
+            distance_in_square = []
+            x, y = val[0], val[1]
+            # nombre de pixel autour du points = 5
+            x_min = max(x - around, 0)
+            x_max = min(x + around, depth.width)
+            y_min = max(y - around, 0)
+            y_max = min(y + around, depth.height)
 
-    res = '1280x720'  # '640x480'
-    default_model = 'models/mobilenet/posenet_mobilenet_v1_075_%d_%d_quant_decoder_edgetpu.tflite'
+            for u in range(x_min, x_max):
+                for v in range(y_min, y_max):
+                    distance_in_square.append(depth.get_distance(u, v))
 
-    if res == '480x360':
-        src_size = (640, 480)
-        appsink_size = (480, 360)
-        model = default_model % (353, 481)
-    elif res == '640x480':
-        src_size = (640, 480)
-        appsink_size = (640, 480)
-        model = default_model % (481, 641)
-    elif res == '1280x720':
-        src_size = (1280, 720)
-        appsink_size = (1280, 720)
-        model = default_model % (721, 1281)
+            if distance_in_square:
+                dists = np.asarray(distance_in_square)
+            else:
+                dists = None
 
-    print('Loading model: ', model)
+            if dists.any():
+                # Suppression du plus petit et du plus grand
+                dists = np.sort(dists)
+                dists = dists[1:-1]
+                # Moyenne
+                average = np.average(dists)
+                # Exclusion des trop éloignés
+                reste = dists[ (dists >= average*0.8) & (dists <= average*1.2) ]
+                # Eloignement estimé du points
+                profondeur = np.average(reste)
 
-    engine = PoseEngine(model, mirror=False)
-    input_shape = engine.get_input_tensor_shape()
-    inference_size = (input_shape[2], input_shape[1])
+                # Calcul les coordonnées 3D avec x et y coordonnées dans
+                # l'image et la profondeur du point
+                point_with_deph = rs.rs2_deproject_pixel_to_point(depth_intrinsic,
+                                                                  [x, y],
+                                                                  profondeur)
+                if not np.isnan(point_with_deph[0]):
+                    points_3D[key] = point_with_deph
 
-    n = 0
-    sum_process_time = 0
-    sum_inference_time = 0
-    fps_counter  = avg_fps_counter(30)
-
-    pipeline = rs.pipeline()
-    config = rs.config()
-    config.enable_stream(rs.stream.depth, src_size[0], src_size[1], rs.format.z16, 30)
-    config.enable_stream(rs.stream.color, src_size[0], src_size[1], rs.format.rgb8, 30)
-    pipeline.start(config)
-
-    c = rs.colorizer()
-    align_to = rs.stream.color
-    align = rs.align(align_to)
-    while True:
-        frames = pipeline.wait_for_frames()
-        # Align the depth frame to color frame
-        aligned_frames = align.process(frames)
-
-        color = aligned_frames.get_color_frame()
-        depth = aligned_frames.get_depth_frame()
-        if not depth: continue
-
-        color_data = color.as_frame().get_data()
-        color_image_rgb = np.asanyarray(color_data)
-        color_image = cv2.cvtColor(color_image_rgb, cv2.COLOR_RGB2BGR)
-
-        depth_colormap = c.colorize(depth)
-        depth_data = depth_colormap.as_frame().get_data()
-        depth_image = np.asanyarray(depth_data)
-        depth_image = cv2.cvtColor(depth_image, cv2.COLOR_RGB2BGR)
-
-        if (color_image_rgb.shape[0] != appsink_size[1] or
-            color_image_rgb.shape[1] != appsink_size[0]) :
-            color_image_rgb = cv2.resize(color_image_rgb,
-                                  dsize=appsink_size,
-                                  interpolation=cv2.INTER_NEAREST)
-
-        start_time = time.monotonic()
-        outputs, inference_time = engine.DetectPosesInImage(color_image_rgb)
-        end_time = time.monotonic()
-        n += 1
-        sum_process_time += 1000*(end_time - start_time)
-        sum_inference_time += inference_time
-
-        avg_inference_time = sum_inference_time / n
-        text_line = 'PoseNet: %.1fms (%.2f fps) TrueFPS: %.2f Nposes %d' % (
-            avg_inference_time, 1000/avg_inference_time, next(fps_counter), len(outputs)
-        )
-
-        # #shadow_text(color_image, 10, 20, text_line)
-        shadow_text(depth_image, 10, 20, text_line)
-        for pose in outputs:
-            # #draw_pose(color_image, pose, src_size, appsink_size)
-            draw_pose(depth_image, pose, src_size, appsink_size)
-
-        # #cv2.imshow('color', color_image)
-        cv2.imshow('depth', depth_image)
-
-        if cv2.waitKey(1) & 0xFF == 27:
-            break
-
-    cv2.destroyAllWindows()
-    return
+    return points_3D
 
 
 if __name__ == '__main__':
@@ -212,4 +306,6 @@ if __name__ == '__main__':
     kwargs = my_config.conf['pose_camera_realsense_cv']
     print(f"Configuration:\n{kwargs}\n\n")
 
-    main(**kwargs)
+
+    pose_realsense = PoseRealsense(**kwargs)
+    pose_realsense.run()

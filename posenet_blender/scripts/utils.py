@@ -11,7 +11,7 @@ def read_json(fichier):
             data = json.load(f)
         f.close()
     except:
-        data = Nonefiltre
+        data = None
         print("Fichier inexistant ou impossible à lire:")
     return data
 
@@ -81,74 +81,78 @@ def add_object(obj, position, life):
     game_scn = get_scene_with_name("Scene")
     return game_scn.addObject(obj, gl.empty, life)
 
-# Ne sert qu'à lister les keys !
-JOINTS = {  "00": "head",
-            "01": "cou",
-            "02": "epaule.r",
-            "03": "coude.r",
-            "04": "poignet.r",
-            "05": "epaule.l",
-            "06": "coude.l",
-            "07": "poignet.l",
-            "08": "hanche.r",
-            "09": "genou.r",
-            "10": "cheville.r",
-            "11": "hanche.l",
-            "12": "genou.l",
-            "13": "cheville.l",
-            "14": "oeuil.r",
-            "15": "oeuil.l",
-            "16": "oreille.r",
-            "17": "oreille.l",
-            "18": "centre.bassin",
-            "19": "head"}
 
-# Définition des points origine, direction des cubes de matérialisation des os
-PAIRS_COCO = {  "upper_arm.L": [5, 6],
-                "forearm.L": [6, 7],
-                "upper_arm.R": [2, 3],
-                "forearm.R": [3, 4],
-                "thigh.L": [11, 12],
-                "shin.L": [12, 13],
-                "thigh.R": [8, 9],
-                "shin.R": [9, 10],
-                "shoulder.L": [1, 5],
-                "shoulder.R": [1, 2],
-                "tronc.L": [5, 11],
-                "tronc.R": [2, 8],
-                "bassin": [8, 11],
-                "cou": [1, 0]}
-                # #"yeux": [15, 16],
-                # #"oreille.R": [15, 14],
-                # #"oreille.L": [16, 17],
-                # #"head": [0, 19]}
-
-PAIRS_MPI = {  "upper_arm.L": [5, 6],
-                "forearm.L": [6, 7],
-                "upper_arm.R": [2, 3],
-                "forearm.R": [3, 4],
-                "thigh.L": [11, 12],
-                "shin.L": [12, 13],
-                "thigh.R": [8, 9],
-                "shin.R": [9, 10],
-                "shoulder.L": [1, 5],
-                "shoulder.R": [1, 2],
-                "tronc.L": [5, 11],
-                "tronc.R": [2, 8],
-                "bassin": [8, 11],
-                "head": [1, 0]}
+JOINTS = ["00", "01", "02", "03", "04", "05", "06", "07", "08", "09", "10",
+            "11", "12", "13", "14", "15", "16", "17"]
 
 
-# Liste des os du squelette
-""" [spine, spine.001, spine.002, spine.003, spine.004, spine.005, spine.006,
-    shoulder.L, upper_arm.L, forearm.L, hand.L, shoulder.R, upper_arm.R,
-    forearm.R, hand.R, pelvis.L, pelvis.R, thigh.L, shin.L, thigh.R, shin.R]
+# Non utilisé
 """
+    NOSE = 0
+    LEFT_EYE = 1
+    RIGHT_EYE = 2
+    LEFT_EAR = 3
+    RIGHT_EAR = 4
+    LEFT_SHOULDER = 5
+    RIGHT_SHOULDER = 6
+    LEFT_ELBOW = 7
+    RIGHT_ELBOW = 8
+    LEFT_WRIST = 9
+    RIGHT_WRIST = 10
+    LEFT_HIP = 11
+    RIGHT_HIP = 12
+    LEFT_KNEE = 13
+    RIGHT_KNEE = 14
+    LEFT_ANKLE = 15
+    RIGHT_ANKLE = 16
 
+
+
+    EDGES = (   (0, 1),
+            (0, 2),
+            (0, 3),
+            (0, 4),
+            (3, 1),
+            (4, 2),
+            (1, 2),
+            (5, 6),
+            (5, 7),
+            (5, 11),
+            (6, 8),
+            (6, 12),
+            (7, 9),
+            (8, 10),
+            (11, 12),
+            (11, 13),
+            (12, 14),
+            (13, 15),
+            (14, 16))
+
+"""
+# Définition des points origine, direction des cubes de matérialisation des os
+PAIRS = {  "upper_arm.L": [0, 1],
+            "forearm.L": [0, 2],
+            "upper_arm.R": [0, 3],
+            "forearm.R": [0, 4],
+            "thigh.L": [3, 1],
+            "shin.L": [4, 2],
+            "thigh.R": [1, 2],
+            "shin.R": [5, 6],
+            "shoulder.L": [5, 7],
+            "shoulder.R": [5, 11],
+            "tronc.L": [6, 8],
+            "tronc.R": [6, 12],
+            "bassin": [7, 9],
+            "cou": [8, 10],
+            "yeux": [11, 12],
+            "oreille.R": [11, 13],
+            "oreille.L": [12, 14],
+            "head": [13, 15],
+            "jambe.R": [14, 16]}
 
 def get_points_blender(data):
     """frame_data = list(coordonnées des points empilés d'une frame
-            soit 3*18 items avec:
+            soit 3*17 items avec:
             mutipliées par 1000
             les None sont remplacés par (-1000000, -1000000, -1000000)
             le numéro du body (dernier de la liste) doit être enlevé
@@ -156,11 +160,10 @@ def get_points_blender(data):
             Les coords sont multipliées par 1000 avant envoi en OSC
             Permutation de y et z, z est la profondeur pour RS et OpenCV
             et inversion de l'axe des y en z
-            Conversion de cubemos en blender
+            C'est la conversion de openpose en blender
     """
 
-    # Réception de 54=3*18 ou 45=3*15
-    if len(data) == 54 or len(data) == 45:
+    if len(data) == 51:
         nombre = int(len(data)/3)
         points = []
         for i in range(nombre):

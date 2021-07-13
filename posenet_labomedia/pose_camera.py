@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# Modified by La Labomedia July 2021
+# Modification by La Labomedia July 2021
 
 
 import argparse
@@ -155,10 +155,10 @@ def main():
         sum_process_time += 1000 * (end_time - start_time)
         sum_inference_time += inference_time * 1000
 
-        avg_inference_time = sum_inference_time / n
+        avg_inference_time = sum_inference_time/n
         text_line = 'PoseNet: %.1fms (%.2f fps) TrueFPS: %.2f Nposes %d' % (
-            avg_inference_time, 1000 / avg_inference_time, next(fps_counter), len(outputs)
-        )
+                avg_inference_time, 1000/avg_inference_time, next(fps_counter),
+                len(outputs))
 
         shadow_text(svg_canvas, 10, 20, text_line)
         for pose in outputs:

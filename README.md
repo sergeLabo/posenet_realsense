@@ -13,3 +13,7 @@ pose_camera None
 pose came cv 15 mais calcul points faux, à revoir !
 pose camera cpu cv 1.5 mais calcul points faux, à revoir !
 pose_camera realsense cv 10 calcul points juste ! cpu=20%
+
+### Realsense D455
+
+La taille d'image est soit 1280x720, soit 640x480
